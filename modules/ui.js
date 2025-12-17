@@ -1,6 +1,6 @@
 /**
  * BjornsFactionHUB - UI Module
- * @version 1.2.0
+ * @version 1.3.0
  */
 
 (function() {
@@ -15,10 +15,32 @@
     function init(core, api, managers) {
         Core = core; API = api; Managers = managers;
         setTimeout(() => checkForApiKey(), 1000);
+        
+        // Auto-refresh war data if we have an API key
+        setInterval(() => {
+            if(Core.state.isDrawerOpen && Core.state.activeTab === 'war') {
+                Managers.WarMonitor.refreshAll();
+            }
+        }, 10000);
     }
 
     function checkForApiKey() {
         if (!Core.state.apiKey || Core.state.apiKey === '###PDA-APIKEY###') UI.openApiModal();
+        else if (Managers && Managers.WarMonitor) {
+             // Try to auto-start war monitor if we have user data
+             if (Core.state.userData && Core.state.userData.faction) {
+                 // Trigger background war check
+                 API.TornAPI.getFactionWar(Core.state.userData.faction.faction_id).then(data => {
+                    if (data && data.wars && data.wars.length > 0) {
+                        const war = data.wars[0];
+                        const myId = data.ID;
+                        const enemyId = Object.keys(war.factions).find(id => id !== String(myId));
+                        Managers.WarMonitor.start(myId, enemyId);
+                        Managers.WarMonitor.setScores(war.factions[myId].score, war.factions[enemyId].score);
+                    }
+                 });
+             }
+        }
     }
 
     // ============================================
@@ -26,48 +48,53 @@
     // ============================================
     const STYLES = `
         :host { --bg: #222; --header: #333; --accent: #88c000; --text: #fff; --muted: #aaa; --border: #444; --red: #ff4d4d; --yellow: #ffd700; --blue: #4da6ff; font-family: Arial, sans-serif; }
-        .bfh-toggle-btn { position: fixed; bottom: 10px; left: 10px; width: 35px; height: 35px; background: var(--header); border: 1px solid var(--accent); border-radius: 4px; color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 99990; }
-        .bfh-hub { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 450px; height: 600px; background: var(--bg); border: 1px solid var(--accent); display: none; flex-direction: column; z-index: 99999; border-radius: 6px; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+        
+        .bfh-toggle-btn { position: fixed; bottom: 10px; left: 10px; width: 35px; height: 35px; background: var(--header); border: 1px solid var(--accent); border-radius: 4px; color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 99990; transition: 0.2s; }
+        .bfh-toggle-btn:hover { box-shadow: 0 0 8px var(--accent); }
+
+        /* COMPACT HUB */
+        .bfh-hub { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 360px; height: 480px; background: var(--bg); border: 1px solid var(--accent); display: none; flex-direction: column; z-index: 99999; border-radius: 6px; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
         .bfh-hub.open { display: flex; }
-        .bfh-header { padding: 10px; background: var(--header); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        
+        .bfh-header { padding: 8px 12px; background: var(--header); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: bold; }
         .bfh-tabs { display: flex; background: var(--header); border-bottom: 1px solid var(--border); }
-        .bfh-tab { flex: 1; padding: 10px; text-align: center; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+        .bfh-tab { flex: 1; padding: 8px; text-align: center; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-size: 12px; }
         .bfh-tab.active { border-bottom-color: var(--accent); color: var(--text); background: #3a3a3a; }
-        .bfh-content { flex: 1; overflow-y: auto; padding: 10px; }
+        .bfh-content { flex: 1; overflow-y: auto; padding: 0; }
         
-        /* WAR SPECIFIC STYLES */
-        .bfh-score-board { display: flex; justify-content: space-between; background: #111; padding: 10px; border-radius: 4px; margin-bottom: 10px; border: 1px solid var(--border); }
+        /* WAR BOARD */
+        .bfh-score-board { display: flex; justify-content: space-between; background: #151515; padding: 8px; border-bottom: 1px solid var(--border); }
         .bfh-score-box { text-align: center; flex: 1; }
-        .bfh-score-val { font-size: 18px; font-weight: bold; }
-        .bfh-score-label { font-size: 10px; color: var(--muted); }
-        .bfh-vs { align-self: center; font-weight: bold; color: var(--muted); }
+        .bfh-score-val { font-size: 16px; font-weight: bold; }
+        .bfh-score-label { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+        .bfh-vs { align-self: center; font-weight: bold; color: #444; font-size: 10px; }
         
-        .bfh-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }
-        .bfh-table th { text-align: left; color: var(--muted); padding: 5px; border-bottom: 1px solid var(--border); }
-        .bfh-table td { padding: 6px 5px; border-bottom: 1px solid #333; }
+        /* TABLES */
+        .bfh-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+        .bfh-table th { text-align: left; color: var(--muted); padding: 4px 6px; background: #2a2a2a; position: sticky; top: 0; }
+        .bfh-table td { padding: 4px 6px; border-bottom: 1px solid #333; }
+        .bfh-table tr:hover { background: #2a2a2a; }
         
         /* STATUS LIGHTS */
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: #555; }
-        .status-online { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; background: #555; vertical-align: middle; }
+        .status-online { background: var(--accent); box-shadow: 0 0 3px var(--accent); }
         .status-idle { background: var(--yellow); }
         .status-offline { background: #555; }
         
-        /* WATCHER LIGHT */
-        .watcher-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #333; border: 1px solid #555; cursor: pointer; }
+        .watcher-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: #333; border: 1px solid #555; cursor: pointer; }
         .watcher-active { background: var(--accent); border-color: var(--accent); }
         
         /* MODE SWITCH */
-        .mode-switch { display: flex; background: #333; border-radius: 3px; margin-bottom: 5px; }
+        .mode-switch { display: flex; background: #333; border-bottom: 1px solid var(--border); }
         .mode-opt { flex: 1; text-align: center; padding: 4px; cursor: pointer; font-size: 10px; color: var(--muted); }
         .mode-opt.active { background: var(--accent); color: #000; font-weight: bold; }
 
         /* BUTTONS */
-        .btn-act { padding: 2px 6px; border-radius: 3px; border: none; cursor: pointer; font-size: 10px; color: #fff; }
+        .btn-act { padding: 2px 5px; border-radius: 3px; border: none; cursor: pointer; font-size: 9px; color: #fff; min-width: 40px; }
         .btn-claim { background: #444; }
         .btn-claim.claimed { background: var(--accent); color: #000; }
         .btn-med { background: var(--red); }
         
-        /* TEXT COLORS */
         .txt-okay { color: var(--accent); }
         .txt-hosp { color: var(--red); }
         .txt-travel { color: var(--blue); }
@@ -93,11 +120,11 @@
         renderHub() {
             hubEl = document.createElement('div'); hubEl.className = 'bfh-hub';
             hubEl.innerHTML = `
-                <div class="bfh-header"><span style="color:var(--accent); font-weight:bold;">BjornsFactionHUB</span><span class="bfh-close" style="cursor:pointer;">✕</span></div>
+                <div class="bfh-header"><span style="color:var(--accent);">BjornsFactionHUB</span><span class="bfh-close" style="cursor:pointer;">✕</span></div>
                 <div class="bfh-tabs">
                     <div class="bfh-tab active" data-tab="targets">Targets</div>
                     <div class="bfh-tab" data-tab="war">War</div>
-                    <div class="bfh-tab" data-tab="settings">Settings</div>
+                    <div class="bfh-tab" data-tab="settings">Config</div>
                 </div>
                 <div class="bfh-content" id="bfh-content"></div>
             `;
@@ -130,31 +157,21 @@
             const scoreDiv = document.createElement('div');
             scoreDiv.className = 'bfh-score-board';
             scoreDiv.innerHTML = `
-                <div class="bfh-score-box"><div class="bfh-score-val" style="color:var(--accent)">${WarMon.warScores.myScore}</div><div class="bfh-score-label">US</div></div>
+                <div class="bfh-score-box"><div class="bfh-score-val" style="color:var(--accent)">${WarMon.warScores.myScore || 0}</div><div class="bfh-score-label">US</div></div>
                 <div class="bfh-vs">VS</div>
-                <div class="bfh-score-box"><div class="bfh-score-val" style="color:var(--red)">${WarMon.warScores.enemyScore}</div><div class="bfh-score-label">THEM</div></div>
+                <div class="bfh-score-box"><div class="bfh-score-val" style="color:var(--red)">${WarMon.warScores.enemyScore || 0}</div><div class="bfh-score-label">THEM</div></div>
             `;
             container.appendChild(scoreDiv);
 
             if (!WarMon.myFactionId || !WarMon.enemyFactionId) {
-                container.innerHTML += `<div style="text-align:center; padding:20px; color:#666;">
-                    No active war detected.<br>
-                    <button class="btn-act btn-claim" style="font-size:12px; padding:8px; margin-top:10px;" id="btn-scan-war">Scan Page for War</button>
+                container.innerHTML += `<div style="text-align:center; padding:40px; color:#666; font-size:11px;">
+                    <div>No Active War Detected</div>
+                    <div style="margin-top:5px; color:#444;">Monitoring for updates...</div>
                 </div>`;
-                const scanBtn = container.querySelector('#btn-scan-war');
-                if(scanBtn) scanBtn.onclick = () => WarPageIntegration.scan();
                 return;
             }
 
-            // 2. FRIENDLY ROSTER
-            const friendlies = WarMon.getFriendlyMembers();
-            const friendlyTable = this.createRosterTable(friendlies, 'friendly');
-            container.innerHTML += `<div style="font-weight:bold; margin-bottom:5px; color:#fff;">Friendly Roster (${friendlies.length})</div>`;
-            container.appendChild(friendlyTable);
-
-            // 3. ENEMY ROSTER CONTROLS
-            const modeDiv = document.createElement('div');
-            modeDiv.innerHTML = `<div style="font-weight:bold; margin:15px 0 5px 0; color:#fff;">Enemy Roster</div>`;
+            // 2. ENEMY ROSTER HEADER & SWITCH
             const switchEl = document.createElement('div');
             switchEl.className = 'mode-switch';
             switchEl.innerHTML = `
@@ -162,15 +179,28 @@
                 <div class="mode-opt ${warTabMode === 'med' ? 'active' : ''}" data-mode="med">MED MODE</div>
             `;
             switchEl.querySelectorAll('.mode-opt').forEach(opt => {
-                opt.onclick = () => { warTabMode = opt.dataset.mode; this.renderWar(container); }; // Re-render on toggle
+                opt.onclick = () => { warTabMode = opt.dataset.mode; this.renderWar(container); };
             });
-            container.appendChild(modeDiv);
             container.appendChild(switchEl);
 
-            // 4. ENEMY ROSTER
+            // 3. ENEMY ROSTER TABLE
             const enemies = WarMon.getEnemyMembers();
-            const enemyTable = this.createRosterTable(enemies, 'enemy');
-            container.appendChild(enemyTable);
+            if (enemies.length > 0) {
+                container.appendChild(this.createRosterTable(enemies, 'enemy'));
+            } else {
+                container.innerHTML += `<div style="padding:20px; text-align:center; font-size:11px; color:#666;">Loading Enemy Roster...</div>`;
+            }
+            
+            // 4. FRIENDLY ROSTER (Collapsed/Bottom)
+            const friendlyHeader = document.createElement('div');
+            friendlyHeader.style.cssText = 'padding:8px; background:#111; color:#666; font-size:10px; font-weight:bold; border-top:1px solid #333; margin-top:10px;';
+            friendlyHeader.textContent = `FRIENDLY ROSTER (${WarMon.getFriendlyMembers().length})`;
+            container.appendChild(friendlyHeader);
+            
+            const friendlies = WarMon.getFriendlyMembers();
+            if (friendlies.length > 0) {
+                 container.appendChild(this.createRosterTable(friendlies, 'friendly'));
+            }
         },
 
         createRosterTable(members, type) {
@@ -183,37 +213,35 @@
             members.forEach(m => {
                 const tr = document.createElement('tr');
                 
-                // Online Status Dot
+                // Online Status
                 const onlineState = Managers.WarMonitor.getOnlineStatus(m.lastAction);
-                const dotClass = `status-${onlineState}`; // online, idle, offline
+                const dotClass = `status-${onlineState}`;
                 
-                // Status Text & Color
+                // Status Text
                 let statusTxt = m.status.state;
                 let statusClass = 'txt-okay';
                 if (statusTxt === 'Hospital') {
                     statusClass = 'txt-hosp';
-                    // Calc timer
                     const now = Math.floor(Date.now()/1000);
                     if (m.status.until > now) {
                         const rem = m.status.until - now;
                         const min = Math.floor(rem/60);
                         const sec = rem%60;
-                        statusTxt = `Hosp (${min}:${sec < 10 ? '0'+sec : sec})`;
+                        statusTxt = `${min}:${sec < 10 ? '0'+sec : sec}`;
                     }
-                } else if (statusTxt === 'Traveling' || statusTxt === 'Abroad') {
+                } else if (['Traveling','Abroad'].includes(statusTxt)) {
                     statusClass = 'txt-travel';
+                    statusTxt = 'Travel';
                 }
 
-                // Action Column (Watcher or Dibs)
+                // Actions
                 let actionHtml = '';
                 if (type === 'friendly') {
-                    // Watcher toggle (Visual only for now)
                     actionHtml = `<div class="watcher-dot" onclick="this.classList.toggle('watcher-active')"></div>`;
                 } else {
-                    // Enemy Actions
                     if (warTabMode === 'claim') {
                         const isClaimed = Managers.DibsManager.isClaimed(m.id);
-                        actionHtml = `<button class="btn-act btn-claim ${isClaimed ? 'claimed' : ''}" data-id="${m.id}">${isClaimed ? 'MINE' : 'DIBS'}</button>`;
+                        actionHtml = `<button class="btn-act btn-claim ${isClaimed ? 'claimed' : ''}">${isClaimed ? 'MINE' : 'DIBS'}</button>`;
                     } else {
                         actionHtml = `<button class="btn-act btn-med">MED</button>`;
                     }
@@ -227,17 +255,14 @@
                     <td align="center">${actionHtml}</td>
                 `;
 
-                // Bind Enemy Button Events
+                // Button Events
                 if (type === 'enemy') {
                     const btn = tr.querySelector('button');
                     if (btn && warTabMode === 'claim') {
                         btn.onclick = () => {
-                            if (Managers.DibsManager.isClaimed(m.id)) {
-                                Managers.DibsManager.release(m.id);
-                            } else {
-                                Managers.DibsManager.claim(m.id, m.name);
-                            }
-                            this.switchTab('war'); // Refresh to update button state
+                            if (Managers.DibsManager.isClaimed(m.id)) Managers.DibsManager.release(m.id);
+                            else Managers.DibsManager.claim(m.id, m.name);
+                            this.switchTab('war');
                         };
                     }
                 }
@@ -248,68 +273,79 @@
         },
 
         // ========================
-        // TARGETS TAB (Simplified)
+        // TARGETS TAB
         // ========================
         renderTargets(container) {
-            /* (Same logic as previous version, abbreviated here to save space) */
-            Managers.TargetManager.getAll().forEach(t => {
+            const targets = Managers.TargetManager.getAll();
+            if (targets.length === 0) {
+                 container.innerHTML = `<div style="padding:40px; text-align:center; font-size:11px; color:#666;">No targets yet.<br>Go to a profile to add one.</div>`;
+                 return;
+            }
+            targets.forEach(t => {
                 const el = document.createElement('div');
-                el.style.cssText = 'padding:10px; border-bottom:1px solid #333; display:flex; justify-content:space-between;';
-                el.innerHTML = `<div><div style="font-weight:bold; color:var(--accent)">${t.name}</div><div style="font-size:11px; color:#888;">${t.status.state}</div></div>
-                                <button onclick="window.location.href='https://www.torn.com/loader.php?sid=attack&user2ID=${t.id}'" class="btn-act btn-claim">Attack</button>`;
+                el.style.cssText = 'padding:8px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;';
+                
+                let statusClass = 'txt-okay';
+                if (t.status?.state === 'Hospital') statusClass = 'txt-hosp';
+                else if (t.status?.state === 'Traveling') statusClass = 'txt-travel';
+
+                el.innerHTML = `
+                    <div>
+                        <div style="font-weight:bold; font-size:12px; color:var(--accent)">
+                            <a href="https://www.torn.com/profiles.php?XID=${t.id}" target="_blank" style="color:inherit;text-decoration:none;">${t.name}</a>
+                        </div>
+                        <div style="font-size:10px; color:#888;">Lvl ${t.level} • <span class="${statusClass}">${t.status?.state || '?'}</span></div>
+                    </div>
+                    <div style="display:flex; gap:5px;">
+                        <button class="btn-act btn-claim" id="att-${t.id}">Attack</button>
+                        <button class="btn-act btn-med" id="del-${t.id}">×</button>
+                    </div>`;
+                
+                el.querySelector(`#att-${t.id}`).onclick = () => window.location.href = `https://www.torn.com/loader.php?sid=attack&user2ID=${t.id}`;
+                el.querySelector(`#del-${t.id}`).onclick = () => { Managers.TargetManager.remove(t.id); this.renderTargets(container); };
                 container.appendChild(el);
             });
         },
 
         renderSettings(container) {
-            container.innerHTML = `<div style="padding:20px; text-align:center;">API Key: ${Core.state.apiKey ? 'Saved' : 'Missing'}</div>`;
+            container.innerHTML = `
+                <div style="padding:15px; font-size:11px;">
+                    <div style="margin-bottom:15px;">
+                        <div style="color:var(--muted); margin-bottom:5px;">API Key</div>
+                        <div style="color:var(--text); font-family:monospace; background:#111; padding:5px; border:1px solid #333;">
+                            ${Core.state.apiKey ? '••••••••••••' + Core.state.apiKey.slice(-4) : 'Not Set'}
+                        </div>
+                        <button class="btn-act btn-claim" style="margin-top:5px; width:100%;" id="reset-key">Change Key</button>
+                    </div>
+                    <button class="btn-act btn-med" style="width:100%; padding:8px;" id="wipe-data">Factory Reset</button>
+                </div>`;
+            container.querySelector('#reset-key').onclick = () => { Core.Storage.remove('apiKey'); Core.state.apiKey=null; this.openApiModal(); };
+            container.querySelector('#wipe-data').onclick = () => { if(confirm('Reset all data?')) { Core.Storage.clearAll(); location.reload(); }};
         },
 
-        openApiModal() { /* (Same as previous version) */ },
-        refreshWarTab() { if (Core.state.activeTab === 'war') this.switchTab('war'); },
+        openApiModal() {
+            if (apiModalEl) return;
+            apiModalEl = document.createElement('div');
+            apiModalEl.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:100000; display:flex; align-items:center; justify-content:center;';
+            apiModalEl.innerHTML = `
+                <div style="background:#222; padding:20px; border:1px solid var(--accent); width:300px; text-align:center; border-radius:5px;">
+                    <h3 style="color:var(--accent); margin-top:0;">API Key Required</h3>
+                    <input type="text" id="api-input" style="width:90%; padding:8px; background:#111; border:1px solid #444; color:#fff; margin:10px 0;" placeholder="16-character key">
+                    <button id="save-api" style="width:100%; padding:10px; background:var(--accent); border:none; font-weight:bold; cursor:pointer;">SAVE</button>
+                    <div style="margin-top:10px; font-size:10px;"><a href="https://www.torn.com/preferences.php#tab=api" target="_blank" style="color:#888;">Get Key</a></div>
+                </div>`;
+            apiModalEl.querySelector('#save-api').onclick = () => {
+                const k = apiModalEl.querySelector('#api-input').value.trim();
+                if(k.length===16) { Core.state.apiKey=k; Core.Storage.set('apiKey',k); apiModalEl.remove(); apiModalEl=null; setTimeout(()=>location.reload(), 500); }
+                else alert('Invalid Key');
+            };
+            shadowRoot.appendChild(apiModalEl);
+        },
+
         refreshTargetsTab() { if (Core.state.activeTab === 'targets') this.switchTab('targets'); }
     };
 
-    // ============================================
-    // WAR PAGE INTEGRATION (Scraper)
-    // ============================================
-    const WarPageIntegration = {
-        init() {
-            if (window.location.href.includes('faction')) this.scan();
-        },
-        
-        scan() {
-            console.log('[BFH] Scanning for war data...');
-            // 1. Try to find War Score Header on Faction Page
-            const scoreNode = document.querySelector('.war-score-wrap'); // Example class, Torn changes these often
-            if (scoreNode) {
-                // Logic to extract numbers would go here
-                // For now, we simulate finding IDs if we are on a war page
-                const urlParams = new URLSearchParams(window.location.search);
-                if (urlParams.get('step') === 'your') {
-                    // We are on our faction page. 
-                    // This is a placeholder. In a real scenario, we parse the "War" tab DOM elements.
-                    // For V1.2, we will assume we trigger the API instead.
-                }
-            }
-            
-            // Auto-detect IDs from API if not scraped
-            if (Core.state.userData && Core.state.userData.faction && !Managers.WarMonitor.myFactionId) {
-                // If we know our own faction ID from user data
-                // We need to fetch faction wars to find enemy
-                API.TornAPI.getFactionWar(Core.state.userData.faction.faction_id).then(data => {
-                    if (data && data.wars && data.wars.length > 0) {
-                        const war = data.wars[0]; // Grab first active war
-                        const myId = data.ID;
-                        const enemyId = Object.keys(war.factions).find(id => id !== String(myId));
-                        
-                        Managers.WarMonitor.start(myId, enemyId);
-                        Managers.WarMonitor.setScores(war.factions[myId].score, war.factions[enemyId].score);
-                    }
-                });
-            }
-        }
-    };
+    const WarPageIntegration = { init(){} }; // Legacy placeholder
 
     window.BFH_UI = { init, UI, WarPageIntegration };
 })();
