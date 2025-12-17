@@ -1,7 +1,7 @@
 /**
  * BjornsFactionHUB - UI Module
- * * Contains: Shadow DOM UI, Drawer logic, Page Integrations, Toast Notifications
- * * @author BjornOdinsson89
+ * Contains: Shadow DOM UI, Drawer logic, Page Integrations, Toast Notifications
+ * @author BjornOdinsson89
  * @version 1.0.0
  */
 
@@ -43,24 +43,55 @@
             z-index: 99999;
         }
 
+        /* TOGGLE BUTTON (Bottom Left) */
+        .bfh-toggle-btn {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 45px;
+            height: 45px;
+            background: var(--bfh-bg-dark);
+            border: 2px solid var(--bfh-accent);
+            border-radius: 50%;
+            color: var(--bfh-text);
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            z-index: 99998;
+            transition: transform 0.2s, background 0.2s;
+            user-select: none;
+        }
+
+        .bfh-toggle-btn:hover {
+            transform: scale(1.1);
+            background: #444;
+        }
+
+        .bfh-toggle-btn:active {
+            transform: scale(0.95);
+        }
+
         /* DRAWER */
         .bfh-drawer {
             position: fixed;
             top: 0;
-            right: -350px;
+            left: -350px; /* Hidden to the left */
             width: 350px;
             height: 100vh;
             background: var(--bfh-bg-dark);
-            border-left: 1px solid var(--bfh-accent);
-            box-shadow: -5px 0 15px rgba(0,0,0,0.5);
-            transition: right 0.3s ease;
+            border-right: 1px solid var(--bfh-accent);
+            box-shadow: 5px 0 15px rgba(0,0,0,0.5);
+            transition: left 0.3s ease;
             display: flex;
             flex-direction: column;
             z-index: 99999;
         }
 
         .bfh-drawer.open {
-            right: 0;
+            left: 0;
         }
 
         /* HEADER */
@@ -170,8 +201,8 @@
         /* TOAST */
         .bfh-toast-container {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
+            bottom: 80px; /* Above the toggle button */
+            left: 20px;
             display: flex;
             flex-direction: column;
             gap: 10px;
@@ -190,7 +221,7 @@
         }
 
         @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
+            from { transform: translateX(-100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
         }
 
@@ -223,8 +254,9 @@
             styleEl.textContent = STYLES;
             shadowRoot.appendChild(styleEl);
 
-            // Create Drawer
+            // Create Components
             this.renderDrawer();
+            this.renderToggleButton();
             
             // Create Toast Container
             const toastContainer = document.createElement('div');
@@ -232,6 +264,26 @@
             shadowRoot.appendChild(toastContainer);
 
             console.log('[BFH_UI] UI initialized');
+        },
+
+        /**
+         * Render the Floating Toggle Button
+         */
+        renderToggleButton() {
+            const btn = document.createElement('div');
+            btn.className = 'bfh-toggle-btn';
+            btn.innerHTML = '🛡️'; // Viking Shield Icon
+            btn.title = 'Open BjornsFactionHUB';
+            
+            btn.onclick = () => {
+                if (Core.state.isDrawerOpen) {
+                    this.closeDrawer();
+                } else {
+                    this.openDrawer();
+                }
+            };
+
+            shadowRoot.appendChild(btn);
         },
 
         /**
