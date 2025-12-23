@@ -16,12 +16,46 @@
         Core = core; API = api; Managers = managers;
         setTimeout(() => checkForApiKey(), 1000);
         
-        // Auto-refresh war data if we have an API key
+        // Auto-refresh war and targets data when tabs are open
         setInterval(() => {
-            if(Core.state.isDrawerOpen && Core.state.activeTab === 'war') {
-                Managers.WarMonitor.refreshAll();
+            if(Core.state.isDrawerOpen) {
+                if (Core.state.activeTab === 'war') {
+                    Managers.WarMonitor.refreshAll();
+                } else if (Core.state.activeTab === 'targets' && Core.state.apiKey) {
+                    // Refresh targets in background (throttled)
+                    refreshTargetsInBackground();
+                }
             }
-        }, 10000);
+        }, 30000); // Every 30 seconds
+    }
+
+    let isRefreshingTargets = false;
+    async function refreshTargetsInBackground() {
+        if (isRefreshingTargets) return;
+        isRefreshingTargets = true;
+
+        try {
+            const targets = Managers.TargetManager.getAll();
+            for (const target of targets.slice(0, 5)) { // Limit to first 5 to avoid rate limits
+                try {
+                    const userData = await API.TornAPI.getUser(target.id);
+                    if (userData && userData.player_id) {
+                        Managers.TargetManager.add({
+                            ...target,
+                            name: userData.name,
+                            level: userData.level,
+                            status: userData.status,
+                            last_action: userData.last_action
+                        });
+                    }
+                    await Core.Utils.sleep(1000); // Rate limit friendly
+                } catch (e) {
+                    Core.Utils.debug('Failed to refresh target', target.id, e);
+                }
+            }
+        } finally {
+            isRefreshingTargets = false;
+        }
     }
 
     function checkForApiKey() {
@@ -31,14 +65,19 @@
              if (Core.state.userData && Core.state.userData.faction) {
                  // Trigger background war check
                  API.TornAPI.getFactionWar(Core.state.userData.faction.faction_id).then(data => {
-                    if (data && data.wars && data.wars.length > 0) {
-                        const war = data.wars[0];
-                        const myId = data.ID;
-                        const enemyId = Object.keys(war.factions).find(id => id !== String(myId));
-                        Managers.WarMonitor.start(myId, enemyId);
-                        Managers.WarMonitor.setScores(war.factions[myId].score, war.factions[enemyId].score);
+                    if (data && data.wars && Object.keys(data.wars).length > 0) {
+                        const warId = Object.keys(data.wars)[0];
+                        const war = data.wars[warId];
+                        const myId = String(data.ID);
+                        const enemyId = Object.keys(war.factions).find(id => String(id) !== myId);
+                        if (enemyId) {
+                            Managers.WarMonitor.start(myId, enemyId);
+                            const myScore = war.factions[myId]?.score || 0;
+                            const enemyScore = war.factions[enemyId]?.score || 0;
+                            Managers.WarMonitor.setScores(myScore, enemyScore);
+                        }
                     }
-                 });
+                 }).catch(err => console.warn('[BFH_UI] War check failed:', err));
              }
         }
     }
@@ -214,17 +253,18 @@
                 const tr = document.createElement('tr');
                 
                 // Online Status
-                const onlineState = Managers.WarMonitor.getOnlineStatus(m.lastAction);
+                const onlineState = Managers.WarMonitor.getOnlineStatus(m.lastAction || '');
                 const dotClass = `status-${onlineState}`;
-                
+
                 // Status Text
-                let statusTxt = m.status.state;
+                let statusTxt = m.status?.state || 'Unknown';
                 let statusClass = 'txt-okay';
                 if (statusTxt === 'Hospital') {
                     statusClass = 'txt-hosp';
                     const now = Math.floor(Date.now()/1000);
-                    if (m.status.until > now) {
-                        const rem = m.status.until - now;
+                    const until = m.status?.until || 0;
+                    if (until > now) {
+                        const rem = until - now;
                         const min = Math.floor(rem/60);
                         const sec = rem%60;
                         statusTxt = `${min}:${sec < 10 ? '0'+sec : sec}`;
@@ -247,10 +287,14 @@
                     }
                 }
 
+                const name = Core.Utils.escapeHtml(m.name || 'Unknown');
+                const level = m.level || '?';
+                const lastActionTitle = Core.Utils.escapeHtml(m.lastAction || 'Unknown');
+
                 tr.innerHTML = `
-                    <td><div class="status-dot ${dotClass}" title="${m.lastAction}"></div></td>
-                    <td><a href="https://www.torn.com/profiles.php?XID=${m.id}" target="_blank" style="color:#ddd;text-decoration:none">${m.name}</a></td>
-                    <td>${m.level}</td>
+                    <td><div class="status-dot ${dotClass}" title="${lastActionTitle}"></div></td>
+                    <td><a href="https://www.torn.com/profiles.php?XID=${m.id}" target="_blank" style="color:#ddd;text-decoration:none">${name}</a></td>
+                    <td>${level}</td>
                     <td class="${statusClass}">${statusTxt}</td>
                     <td align="center">${actionHtml}</td>
                 `;
@@ -276,33 +320,70 @@
         // TARGETS TAB
         // ========================
         renderTargets(container) {
+            // Add refresh button header
+            const header = document.createElement('div');
+            header.style.cssText = 'padding:8px; background:#111; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;';
+            header.innerHTML = `
+                <span style="color:#888; font-size:10px; font-weight:bold;">MY TARGETS</span>
+                <button class="btn-act btn-claim" id="refresh-targets" style="font-size:9px;">⟳ Refresh</button>
+            `;
+            container.appendChild(header);
+
+            const refreshBtn = header.querySelector('#refresh-targets');
+            refreshBtn.onclick = async () => {
+                refreshBtn.textContent = '⟳ Updating...';
+                refreshBtn.disabled = true;
+                try {
+                    await Managers.TargetManager.refreshAll();
+                    this.refreshTargetsTab();
+                    refreshBtn.textContent = '✓ Updated';
+                    setTimeout(() => {
+                        refreshBtn.textContent = '⟳ Refresh';
+                        refreshBtn.disabled = false;
+                    }, 2000);
+                } catch (e) {
+                    console.error('Refresh failed:', e);
+                    refreshBtn.textContent = '✗ Failed';
+                    setTimeout(() => {
+                        refreshBtn.textContent = '⟳ Refresh';
+                        refreshBtn.disabled = false;
+                    }, 2000);
+                }
+            };
+
             const targets = Managers.TargetManager.getAll();
             if (targets.length === 0) {
-                 container.innerHTML = `<div style="padding:40px; text-align:center; font-size:11px; color:#666;">No targets yet.<br>Go to a profile to add one.</div>`;
+                 container.innerHTML += `<div style="padding:40px; text-align:center; font-size:11px; color:#666;">No targets yet.<br>Go to a profile to add one.</div>`;
                  return;
             }
             targets.forEach(t => {
+                if (!t || !t.id) return; // Skip invalid entries
+
                 const el = document.createElement('div');
                 el.style.cssText = 'padding:8px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;';
-                
+
                 let statusClass = 'txt-okay';
                 if (t.status?.state === 'Hospital') statusClass = 'txt-hosp';
                 else if (t.status?.state === 'Traveling') statusClass = 'txt-travel';
 
+                const name = Core.Utils.escapeHtml(t.name || 'Unknown');
+                const level = t.level || '?';
+                const statusText = t.status?.state || 'Unknown';
+
                 el.innerHTML = `
                     <div>
                         <div style="font-weight:bold; font-size:12px; color:var(--accent)">
-                            <a href="https://www.torn.com/profiles.php?XID=${t.id}" target="_blank" style="color:inherit;text-decoration:none;">${t.name}</a>
+                            <a href="https://www.torn.com/profiles.php?XID=${t.id}" target="_blank" style="color:inherit;text-decoration:none;">${name}</a>
                         </div>
-                        <div style="font-size:10px; color:#888;">Lvl ${t.level} • <span class="${statusClass}">${t.status?.state || '?'}</span></div>
+                        <div style="font-size:10px; color:#888;">Lvl ${level} • <span class="${statusClass}">${statusText}</span></div>
                     </div>
                     <div style="display:flex; gap:5px;">
                         <button class="btn-act btn-claim" id="att-${t.id}">Attack</button>
                         <button class="btn-act btn-med" id="del-${t.id}">×</button>
                     </div>`;
-                
+
                 el.querySelector(`#att-${t.id}`).onclick = () => window.location.href = `https://www.torn.com/loader.php?sid=attack&user2ID=${t.id}`;
-                el.querySelector(`#del-${t.id}`).onclick = () => { Managers.TargetManager.remove(t.id); this.renderTargets(container); };
+                el.querySelector(`#del-${t.id}`).onclick = () => { Managers.TargetManager.remove(t.id); this.switchTab('targets'); };
                 container.appendChild(el);
             });
         },
@@ -342,10 +423,20 @@
             shadowRoot.appendChild(apiModalEl);
         },
 
-        refreshTargetsTab() { if (Core.state.activeTab === 'targets') this.switchTab('targets'); }
+        refreshTargetsTab() {
+            if (Core.state.activeTab === 'targets') {
+                const content = shadowRoot.getElementById('bfh-content');
+                if (content) this.renderTargets(content);
+            }
+        },
+
+        refreshWarTab() {
+            if (Core.state.activeTab === 'war') {
+                const content = shadowRoot.getElementById('bfh-content');
+                if (content) this.renderWar(content);
+            }
+        }
     };
 
-    const WarPageIntegration = { init(){} }; // Legacy placeholder
-
-    window.BFH_UI = { init, UI, WarPageIntegration };
+    window.BFH_UI = { init, UI };
 })();
