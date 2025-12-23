@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         BjornsFactionHUB
+// @name         Odin Faction Tools
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Comprehensive Torn faction tools with war monitor, target tracking, and real-time updates
 // @author       BjornOdinsson89
 // @match        https://www.torn.com/*
@@ -20,8 +20,8 @@
 // @require      https://raw.githubusercontent.com/bjornodinsson89/BjornsFactionTools/main/modules/managers.js
 // @require      https://raw.githubusercontent.com/bjornodinsson89/BjornsFactionTools/main/modules/ui.js
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/bjornodinsson89/BjornsFactionTools/main/BjornsFactionHUB.user.js
-// @downloadURL  https://raw.githubusercontent.com/bjornodinsson89/BjornsFactionTools/main/BjornsFactionHUB.user.js
+// @updateURL    https://raw.githubusercontent.com/bjornodinsson89/BjornsFactionTools/main/Odin-Faction-Tools.user.js
+// @downloadURL  https://raw.githubusercontent.com/bjornodinsson89/BjornsFactionTools/main/Odin-Faction-Tools.user.js
 // ==/UserScript==
 
 (function() {
@@ -121,21 +121,29 @@
                                 if (warData && warData.wars && Object.keys(warData.wars).length > 0) {
                                     const warId = Object.keys(warData.wars)[0];
                                     const war = warData.wars[warId];
-                                    const myFactionId = String(warData.ID);
-                                    const enemyFactionId = Object.keys(war.factions).find(id => String(id) !== myFactionId);
 
-                                    if (enemyFactionId) {
-                                        console.log('[BjornsFactionHUB] Active war detected:', myFactionId, 'vs', enemyFactionId);
+                                    // Validate war data structure
+                                    if (!war || !war.factions) {
+                                        console.warn('[BjornsFactionHUB] Invalid war data structure');
+                                    } else if (!warData.ID) {
+                                        console.warn('[BjornsFactionHUB] Missing faction ID in war data');
+                                    } else {
+                                        const myFactionId = String(warData.ID);
+                                        const enemyFactionId = Object.keys(war.factions).find(id => String(id) !== myFactionId);
 
-                                        // Start war monitor
-                                        await WarMonitor.start(myFactionId, enemyFactionId);
+                                        if (enemyFactionId) {
+                                            console.log('[BjornsFactionHUB] Active war detected:', myFactionId, 'vs', enemyFactionId);
 
-                                        // Set scores
-                                        const myScore = war.factions[myFactionId]?.score || 0;
-                                        const enemyScore = war.factions[enemyFactionId]?.score || 0;
-                                        WarMonitor.setScores(myScore, enemyScore);
+                                            // Start war monitor
+                                            await WarMonitor.start(myFactionId, enemyFactionId);
 
-                                        console.log('[BjornsFactionHUB] War monitor started. Score:', myScore, 'vs', enemyScore);
+                                            // Set scores
+                                            const myScore = war.factions[myFactionId]?.score || 0;
+                                            const enemyScore = war.factions[enemyFactionId]?.score || 0;
+                                            WarMonitor.setScores(myScore, enemyScore);
+
+                                            console.log('[BjornsFactionHUB] War monitor started. Score:', myScore, 'vs', enemyScore);
+                                        }
                                     }
                                 } else {
                                     console.log('[BjornsFactionHUB] No active war detected');
@@ -283,7 +291,11 @@
 
         // Try to insert near profile header
         const insertPoint = container.querySelector('.content-title, .profile-buttons, h4') || container;
-        insertPoint.parentElement.insertBefore(btn, insertPoint.nextSibling);
+        if (insertPoint.parentElement) {
+            insertPoint.parentElement.insertBefore(btn, insertPoint.nextSibling);
+        } else {
+            container.appendChild(btn);
+        }
 
         console.log('[BjornsFactionHUB] Profile quick-add button injected for player', playerId);
     }

@@ -159,6 +159,7 @@
          * @returns {string} Relative time string
          */
         formatRelativeTime(timestamp) {
+            if (!timestamp || isNaN(timestamp)) return 'Unknown';
             const diff = Math.floor((Date.now() / 1000) - timestamp);
             if (diff < 0) return 'just now';
             if (diff < 60) return `${diff}s ago`;
@@ -173,6 +174,7 @@
          * @returns {string} Formatted number string
          */
         formatNumber(num) {
+            if (num == null || isNaN(num)) return '0';
             if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
             if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
             if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';

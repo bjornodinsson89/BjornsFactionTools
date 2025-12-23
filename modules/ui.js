@@ -8,16 +8,20 @@
 
     let Core = null, API = null, Managers = null;
     let shadowRoot = null, hubEl = null, apiModalEl = null;
-    
+    let refreshIntervalId = null;
+
     // UI State for War Tab
     let warTabMode = 'claim'; // 'claim' or 'med'
 
     function init(core, api, managers) {
         Core = core; API = api; Managers = managers;
         setTimeout(() => checkForApiKey(), 1000);
-        
+
+        // Clear any existing interval to prevent memory leaks on re-init
+        if (refreshIntervalId) clearInterval(refreshIntervalId);
+
         // Auto-refresh war and targets data when tabs are open
-        setInterval(() => {
+        refreshIntervalId = setInterval(() => {
             if(Core.state.isDrawerOpen) {
                 if (Core.state.activeTab === 'war') {
                     Managers.WarMonitor.refreshAll();
@@ -68,6 +72,10 @@
                     if (data && data.wars && Object.keys(data.wars).length > 0) {
                         const warId = Object.keys(data.wars)[0];
                         const war = data.wars[warId];
+                        if (!war || !war.factions) {
+                            console.warn('[BFH_UI] Invalid war data structure');
+                            return;
+                        }
                         const myId = String(data.ID);
                         const enemyId = Object.keys(war.factions).find(id => String(id) !== myId);
                         if (enemyId) {
@@ -266,7 +274,7 @@
                     if (until > now) {
                         const rem = until - now;
                         const min = Math.floor(rem/60);
-                        const sec = rem%60;
+                        const sec = Math.floor(rem%60);
                         statusTxt = `${min}:${sec < 10 ? '0'+sec : sec}`;
                     }
                 } else if (['Traveling','Abroad'].includes(statusTxt)) {
@@ -382,8 +390,10 @@
                         <button class="btn-act btn-med" id="del-${t.id}">×</button>
                     </div>`;
 
-                el.querySelector(`#att-${t.id}`).onclick = () => window.location.href = `https://www.torn.com/loader.php?sid=attack&user2ID=${t.id}`;
-                el.querySelector(`#del-${t.id}`).onclick = () => { Managers.TargetManager.remove(t.id); this.switchTab('targets'); };
+                const attBtn = el.querySelector(`#att-${t.id}`);
+                const delBtn = el.querySelector(`#del-${t.id}`);
+                if (attBtn) attBtn.onclick = () => window.location.href = `https://www.torn.com/loader.php?sid=attack&user2ID=${t.id}`;
+                if (delBtn) delBtn.onclick = () => { Managers.TargetManager.remove(t.id); this.switchTab('targets'); };
                 container.appendChild(el);
             });
         },
@@ -400,8 +410,10 @@
                     </div>
                     <button class="btn-act btn-med" style="width:100%; padding:8px;" id="wipe-data">Factory Reset</button>
                 </div>`;
-            container.querySelector('#reset-key').onclick = () => { Core.Storage.remove('apiKey'); Core.state.apiKey=null; this.openApiModal(); };
-            container.querySelector('#wipe-data').onclick = () => { if(confirm('Reset all data?')) { Core.Storage.clearAll(); location.reload(); }};
+            const resetBtn = container.querySelector('#reset-key');
+            const wipeBtn = container.querySelector('#wipe-data');
+            if (resetBtn) resetBtn.onclick = () => { Core.Storage.remove('apiKey'); Core.state.apiKey=null; this.openApiModal(); };
+            if (wipeBtn) wipeBtn.onclick = () => { if(confirm('Reset all data?')) { Core.Storage.clearAll(); location.reload(); }};
         },
 
         openApiModal() {
@@ -415,11 +427,16 @@
                     <button id="save-api" style="width:100%; padding:10px; background:var(--accent); border:none; font-weight:bold; cursor:pointer;">SAVE</button>
                     <div style="margin-top:10px; font-size:10px;"><a href="https://www.torn.com/preferences.php#tab=api" target="_blank" style="color:#888;">Get Key</a></div>
                 </div>`;
-            apiModalEl.querySelector('#save-api').onclick = () => {
-                const k = apiModalEl.querySelector('#api-input').value.trim();
-                if(k.length===16) { Core.state.apiKey=k; Core.Storage.set('apiKey',k); apiModalEl.remove(); apiModalEl=null; setTimeout(()=>location.reload(), 500); }
-                else alert('Invalid Key');
-            };
+            const saveBtn = apiModalEl.querySelector('#save-api');
+            if (saveBtn) {
+                saveBtn.onclick = () => {
+                    const inputEl = apiModalEl.querySelector('#api-input');
+                    if (!inputEl) return;
+                    const k = inputEl.value.trim();
+                    if(k.length===16) { Core.state.apiKey=k; Core.Storage.set('apiKey',k); apiModalEl.remove(); apiModalEl=null; setTimeout(()=>location.reload(), 500); }
+                    else alert('Invalid Key');
+                };
+            }
             shadowRoot.appendChild(apiModalEl);
         },
 

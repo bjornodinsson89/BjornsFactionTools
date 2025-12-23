@@ -82,8 +82,12 @@
                         case 13: // Key disabled
                             throw new Error(`API Key Error: ${errorMsg}`);
                         case 5: // Too many requests
+                            const retryCount = (options.retryCount || 0) + 1;
+                            if (retryCount > 3) {
+                                throw new Error('Rate limit retry exceeded after 3 attempts');
+                            }
                             await Utils.sleep(5000);
-                            return this.fetch(endpoint, selections, id, options);
+                            return this.fetch(endpoint, selections, id, { ...options, retryCount });
                         case 8: // IP block
                         case 9: // API disabled
                             throw new Error(`API Unavailable: ${errorMsg}`);
